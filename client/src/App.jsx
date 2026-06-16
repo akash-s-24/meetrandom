@@ -75,7 +75,7 @@ function App() {
   };
 
   return (
-    <div className="relative w-full h-full bg-background overflow-hidden font-sans">
+    <div className="relative w-full min-h-[100dvh] bg-background font-sans overflow-x-hidden flex flex-col">
       <AnimatePresence mode="wait">
         {view === 'onboarding' ? (
           <motion.div
@@ -95,7 +95,7 @@ function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
-            className="absolute inset-0 flex flex-col p-4 md:p-6 gap-6 z-10"
+            className="flex-1 flex flex-col p-4 md:p-6 gap-6 z-10 w-full"
           >
             {/* Top Bar */}
             <header className="flex items-center justify-between z-20 px-2">
@@ -112,18 +112,18 @@ function App() {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0 pb-[80px] lg:pb-0">
+            <main className="flex-1 flex flex-col lg:flex-row gap-6 pb-[100px] lg:pb-0">
               
               {/* Video Grid (takes up majority of screen) */}
-              <div className="flex-1 flex flex-col sm:flex-row gap-3 lg:gap-6 min-h-0">
-                <div className="flex-1 min-w-0 min-h-0 h-full relative">
+              <div className="flex-1 flex flex-col sm:flex-row gap-4 lg:gap-6">
+                <div className="w-full aspect-square sm:flex-1 sm:h-auto sm:aspect-auto relative">
                   <VideoCard 
                     stream={remoteStream} 
                     isLocal={false} 
                     state={connectionState} 
                   />
                 </div>
-                <div className="flex-1 min-w-0 min-h-0 h-full relative">
+                <div className="w-full aspect-square sm:flex-1 sm:h-auto sm:aspect-auto relative">
                   <VideoCard 
                     stream={localStream} 
                     isLocal={true} 
@@ -134,7 +134,7 @@ function App() {
               </div>
 
               {/* Chat Panel */}
-              <div className="w-full h-[35vh] sm:h-[40vh] lg:h-full lg:w-[400px] flex-shrink-0 z-20">
+              <div className="w-full h-[500px] lg:h-auto lg:flex-1 lg:max-w-[400px] flex-shrink-0 z-20">
                 <ChatPanel 
                   messages={messages}
                   onSend={sendMessage}
