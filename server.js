@@ -17,7 +17,7 @@ app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
 // ── State ──────────────────────────────────────────────────────────
 const waitingQueue = [];           // { socketId, interests }
-const activeRooms  = new Map();    // roomId -> { users, createdAt }
+const activeRooms  = new Map();    // roomId -> { users, createdAt, friendRequests }
 const socketToRoom = new Map();    // socketId -> roomId
 const socketMeta   = new Map();    // socketId -> { interests }
 let onlineCount    = 0;
@@ -59,7 +59,7 @@ function findPartner(socketId, interests) {
 
 function createRoom(id1, id2) {
   const roomId = uuidv4();
-  activeRooms.set(roomId, { users: [id1, id2], createdAt: Date.now() });
+  activeRooms.set(roomId, { users: [id1, id2], createdAt: Date.now(), friendRequests: new Set() });
   socketToRoom.set(id1, roomId);
   socketToRoom.set(id2, roomId);
   return roomId;
@@ -147,6 +147,80 @@ io.on('connection', (socket) => {
   socket.on('typing', (isTyping) => {
     const p = getPartner(socket.id);
     if (p) io.to(p).emit('typing', isTyping);
+  });
+
+  // ── Emoji Reactions ─────────────────────────────────────────────
+  socket.on('reaction', (emoji) => {
+    if (typeof emoji !== 'string' || emoji.length > 4) return;
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('reaction', emoji);
+  });
+
+  // ── Icebreaker ──────────────────────────────────────────────────
+  socket.on('icebreaker', (question) => {
+    if (typeof question !== 'string' || question.length > 200) return;
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('icebreaker', question);
+  });
+
+  // ── Mini Games: Tic-Tac-Toe ─────────────────────────────────────
+  socket.on('game-start', (gameType) => {
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('game-start', gameType);
+  });
+
+  socket.on('game-move', (data) => {
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('game-move', data);
+  });
+
+  socket.on('game-reset', () => {
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('game-reset');
+  });
+
+  // ── Mini Games: Would You Rather ────────────────────────────────
+  socket.on('wyr-question', (question) => {
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('wyr-question', question);
+  });
+
+  socket.on('wyr-pick', (pick) => {
+    const p = getPartner(socket.id);
+    if (p) io.to(p).emit('wyr-pick', pick);
+  });
+
+  // ── Friend System ───────────────────────────────────────────────
+  socket.on('friend-request', () => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) return;
+    const room = activeRooms.get(roomId);
+    if (!room) return;
+    const p = getPartner(socket.id);
+    if (!p) return;
+
+    room.friendRequests.add(socket.id);
+
+    // Check if both users sent friend requests (mutual)
+    if (room.friendRequests.has(p)) {
+      // Both want to be friends! Generate a shared room code
+      const friendCode = uuidv4().slice(0, 8).toUpperCase();
+      socket.emit('friend-accepted', { roomCode: friendCode });
+      io.to(p).emit('friend-accepted', { roomCode: friendCode });
+      console.log(`💚 Friends: ${socket.id} <-> ${p} (code: ${friendCode})`);
+    } else {
+      // Notify partner about the request
+      io.to(p).emit('friend-request-received');
+    }
+  });
+
+  // ── Skip with Reason ────────────────────────────────────────────
+  socket.on('skip-reason', (reason) => {
+    const validReasons = ['inappropriate', 'not-interested', 'afk', 'browsing'];
+    if (reason && validReasons.includes(reason)) {
+      console.log(`📊 Skip reason from ${socket.id}: ${reason}`);
+      // In production: store in DB for analytics
+    }
   });
 
   socket.on('skip', () => {

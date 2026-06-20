@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Smile } from 'lucide-react';
+import { Send, Smile, Dice6 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export function ChatPanel({ messages, onSend, onChange, isTyping, state }) {
+export function ChatPanel({ messages, onSend, onChange, isTyping, state, onIcebreaker }) {
   const [input, setInput] = useState('');
   const scrollRef = useRef(null);
 
@@ -26,11 +26,29 @@ export function ChatPanel({ messages, onSend, onChange, isTyping, state }) {
       {/* Header */}
       <div className="px-6 py-4 border-b border-white/5 bg-surface/50 backdrop-blur-md flex items-center justify-between">
         <h3 className="font-bold text-lg text-white">Live Chat</h3>
-        <div className="flex items-center gap-2">
-          <div className={cn("w-2 h-2 rounded-full", state === 'connected' ? "bg-success shadow-[0_0_8px_#10B981]" : "bg-muted")} />
-          <span className="text-xs font-semibold text-muted uppercase tracking-wider">
-            {state === 'connected' ? 'Connected' : state === 'searching' ? 'Searching' : 'Idle'}
-          </span>
+        <div className="flex items-center gap-3">
+          {/* Icebreaker Button */}
+          <motion.button
+            whileHover={{ scale: 1.1, rotate: 15 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={onIcebreaker}
+            disabled={state !== 'connected'}
+            title="Random Icebreaker"
+            className={cn(
+              "p-1.5 rounded-lg transition-colors",
+              state === 'connected' 
+                ? "hover:bg-accent/20 text-accent cursor-pointer" 
+                : "text-muted/30 cursor-not-allowed"
+            )}
+          >
+            <Dice6 className="w-5 h-5" />
+          </motion.button>
+          <div className="flex items-center gap-2">
+            <div className={cn("w-2 h-2 rounded-full", state === 'connected' ? "bg-success shadow-[0_0_8px_#10B981]" : "bg-muted")} />
+            <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+              {state === 'connected' ? 'Connected' : state === 'searching' ? 'Searching' : 'Idle'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -49,11 +67,14 @@ export function ChatPanel({ messages, onSend, onChange, isTyping, state }) {
                 "max-w-[85%] rounded-2xl px-5 py-3 text-[15px] leading-relaxed shadow-sm",
                 msg.type === 'system' 
                   ? "mx-auto bg-white/5 text-muted text-center text-sm font-medium border border-white/5" 
-                  : msg.from === 'you'
-                    ? "ml-auto bg-gradient-to-br from-accent to-accent/80 text-white rounded-br-sm"
-                    : "mr-auto bg-surface border border-white/5 text-white/90 rounded-bl-sm"
+                  : msg.type === 'icebreaker'
+                    ? "mx-auto bg-gradient-to-r from-accent/10 to-cyan/10 text-white text-center text-sm font-medium border border-accent/20 max-w-[95%]"
+                    : msg.from === 'you'
+                      ? "ml-auto bg-gradient-to-br from-accent to-accent/80 text-white rounded-br-sm"
+                      : "mr-auto bg-surface border border-white/5 text-white/90 rounded-bl-sm"
               )}
             >
+              {msg.type === 'icebreaker' && <span className="text-accent mr-1">🎲</span>}
               {msg.text}
             </motion.div>
           ))}

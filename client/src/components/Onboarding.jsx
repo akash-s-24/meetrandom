@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Video, Hash, Users, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { RoomSelector } from './RoomSelector';
 
 export function Onboarding({ onStart, onlineCount }) {
   const [interest, setInterest] = useState('');
   const [tags, setTags] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState(null);
 
   const addTag = (e) => {
     e.preventDefault();
@@ -18,6 +20,18 @@ export function Onboarding({ onStart, onlineCount }) {
 
   const removeTag = (tag) => {
     setTags(tags.filter((t) => t !== tag));
+  };
+
+  const handleRoomSelect = (room) => {
+    setSelectedRoom(room);
+    // Add room tag if it doesn't exist
+    if (room.tag && !tags.includes(room.tag)) {
+      setTags(prev => [...prev.filter(t => {
+        // Remove previously selected room tags
+        const roomTags = ['music', 'gaming', 'movies', 'deeptalk', 'language'];
+        return !roomTags.includes(t);
+      }), room.tag].slice(0, 5));
+    }
   };
 
   return (
@@ -46,11 +60,16 @@ export function Onboarding({ onStart, onlineCount }) {
         <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-white/60">
           MeetRandom
         </h1>
-        <p className="text-lg md:text-xl text-muted mb-10 max-w-lg mx-auto leading-relaxed">
+        <p className="text-lg md:text-xl text-muted mb-8 max-w-lg mx-auto leading-relaxed">
           The next-gen social platform to meet fascinating people instantly. No accounts, pure vibes.
         </p>
 
-        <form onSubmit={addTag} className="mb-10 text-left max-w-md mx-auto">
+        {/* Room Selector */}
+        <div className="mb-8 max-w-md mx-auto">
+          <RoomSelector selectedRoom={selectedRoom} onSelectRoom={handleRoomSelect} />
+        </div>
+
+        <form onSubmit={addTag} className="mb-8 text-left max-w-md mx-auto">
           <label className="flex items-center gap-2 text-sm font-semibold text-white/80 mb-3 ml-1">
             <Hash className="w-4 h-4 text-accent" />
             Add your vibes (optional)

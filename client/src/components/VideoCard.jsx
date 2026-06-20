@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, User } from 'lucide-react';
+import { Loader2, User, MonitorPlay, ScreenShare } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const SEARCH_MESSAGES = [
@@ -10,7 +10,7 @@ const SEARCH_MESSAGES = [
   "Connecting to someone interesting..."
 ];
 
-export function VideoCard({ stream, isLocal, state, muted }) {
+export function VideoCard({ stream, isLocal, state, muted, isScreenSharing, onPiPRef }) {
   const videoRef = useRef(null);
   const [msgIndex, setMsgIndex] = React.useState(0);
 
@@ -19,6 +19,13 @@ export function VideoCard({ stream, isLocal, state, muted }) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // Expose video ref for PiP
+  useEffect(() => {
+    if (!isLocal && onPiPRef) {
+      onPiPRef(videoRef.current);
+    }
+  }, [isLocal, onPiPRef, stream]);
 
   useEffect(() => {
     if (state === 'searching' && !isLocal) {
@@ -40,7 +47,7 @@ export function VideoCard({ stream, isLocal, state, muted }) {
         muted={muted || isLocal}
         className={cn(
           "w-full h-full object-cover transition-all duration-700",
-          isLocal && "transform -scale-x-100",
+          isLocal && !isScreenSharing && "transform -scale-x-100",
           showOverlay && "filter blur-xl scale-110 opacity-50"
         )}
       />
@@ -100,10 +107,21 @@ export function VideoCard({ stream, isLocal, state, muted }) {
       </AnimatePresence>
 
       {/* Label Badge */}
-      <div className="absolute top-4 left-4 z-20">
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
         <div className="glass px-3 py-1.5 rounded-full text-xs font-semibold tracking-wider uppercase text-white/80">
           {isLocal ? 'You' : 'Stranger'}
         </div>
+        {/* Screen sharing badge */}
+        {isScreenSharing && isLocal && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/20 border border-success/30 text-success text-xs font-semibold"
+          >
+            <ScreenShare className="w-3 h-3" />
+            Screen
+          </motion.div>
+        )}
       </div>
     </div>
   );

@@ -17,10 +17,46 @@ export function useWebRTC() {
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+
+  // Friend system
+  const [friendRequested, setFriendRequested] = useState(false);
+  const [friendAccepted, setFriendAccepted] = useState(false);
+  const [friendRoomCode, setFriendRoomCode] = useState('');
+  const [friendRequestReceived, setFriendRequestReceived] = useState(false);
+
+  // Games
+  const [tttBoard, setTttBoard] = useState(Array(9).fill(null));
+  const [tttIsMyTurn, setTttIsMyTurn] = useState(false);
+  const [tttMySymbol, setTttMySymbol] = useState('X');
+  const [tttWinner, setTttWinner] = useState(null);
+  const [wyrQuestion, setWyrQuestion] = useState(null);
+  const [wyrMyPick, setWyrMyPick] = useState(null);
+  const [wyrPartnerPick, setWyrPartnerPick] = useState(null);
+
+  // Icebreaker
+  const [icebreakerQuestion, setIcebreakerQuestion] = useState(null);
 
   const pcRef = useRef(null);
   const socketRef = useRef(null);
   const localStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const cameraTrackRef = useRef(null);
+
+  const resetGameState = useCallback(() => {
+    setTttBoard(Array(9).fill(null));
+    setTttIsMyTurn(false);
+    setTttMySymbol('X');
+    setTttWinner(null);
+    setWyrQuestion(null);
+    setWyrMyPick(null);
+    setWyrPartnerPick(null);
+    setIcebreakerQuestion(null);
+    setFriendRequested(false);
+    setFriendAccepted(false);
+    setFriendRoomCode('');
+    setFriendRequestReceived(false);
+  }, []);
 
   // Initialize Socket
   useEffect(() => {
@@ -40,6 +76,7 @@ export function useWebRTC() {
       cleanupWebRTC();
       setConnectionState('disconnected');
       addMessage({ text: 'Stranger has disconnected.', type: 'system' });
+      resetGameState();
     });
 
     s.on('msg', ({ text, from }) => {
@@ -48,6 +85,68 @@ export function useWebRTC() {
     });
 
     s.on('typing', (typing) => setIsTyping(typing));
+
+    // ── Reactions ──────────────────────────────────────────────
+    s.on('reaction', (emoji) => {
+      // This will be handled by the App component via onRemoteReaction callback
+      if (reactionCallbackRef.current) reactionCallbackRef.current(emoji);
+    });
+
+    // ── Icebreaker ─────────────────────────────────────────────
+    s.on('icebreaker', (question) => {
+      setIcebreakerQuestion(question);
+    });
+
+    // ── Games: Tic-Tac-Toe ─────────────────────────────────────
+    s.on('game-start', (gameType) => {
+      if (gameType === 'ttt') {
+        setTttBoard(Array(9).fill(null));
+        setTttMySymbol('O'); // Receiver is O
+        setTttIsMyTurn(false); // Initiator goes first
+        setTttWinner(null);
+        if (gameStartCallbackRef.current) gameStartCallbackRef.current(gameType);
+      }
+    });
+
+    s.on('game-move', (data) => {
+      if (data.game === 'ttt') {
+        setTttBoard(prev => {
+          const newBoard = [...prev];
+          newBoard[data.index] = data.symbol;
+          const winner = checkTTTWinner(newBoard);
+          if (winner) setTttWinner(winner);
+          return newBoard;
+        });
+        setTttIsMyTurn(true);
+      }
+    });
+
+    s.on('game-reset', () => {
+      setTttBoard(Array(9).fill(null));
+      setTttWinner(null);
+      setTttIsMyTurn(false);
+    });
+
+    // ── Games: Would You Rather ────────────────────────────────
+    s.on('wyr-question', (question) => {
+      setWyrQuestion(question);
+      setWyrMyPick(null);
+      setWyrPartnerPick(null);
+    });
+
+    s.on('wyr-pick', (pick) => {
+      setWyrPartnerPick(pick);
+    });
+
+    // ── Friend System ──────────────────────────────────────────
+    s.on('friend-request-received', () => {
+      setFriendRequestReceived(true);
+    });
+
+    s.on('friend-accepted', ({ roomCode }) => {
+      setFriendAccepted(true);
+      setFriendRoomCode(roomCode);
+    });
 
     // WebRTC Signaling
     s.on('signal-offer', async (offer) => {
@@ -70,6 +169,18 @@ export function useWebRTC() {
       s.disconnect();
       cleanupWebRTC();
     };
+  }, []);
+
+  // Callback refs for App-level handlers
+  const reactionCallbackRef = useRef(null);
+  const gameStartCallbackRef = useRef(null);
+
+  const setOnRemoteReaction = useCallback((cb) => {
+    reactionCallbackRef.current = cb;
+  }, []);
+
+  const setOnGameStart = useCallback((cb) => {
+    gameStartCallbackRef.current = cb;
   }, []);
 
   const setupWebRTC = async (isInitiator, s) => {
@@ -105,6 +216,11 @@ export function useWebRTC() {
       pcRef.current = null;
     }
     setRemoteStream(null);
+    setIsScreenSharing(false);
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(t => t.stop());
+      screenStreamRef.current = null;
+    }
   };
 
   const startCamera = async (mode = facingMode) => {
@@ -125,6 +241,9 @@ export function useWebRTC() {
       setLocalStream(stream);
       localStreamRef.current = stream;
       setFacingMode(mode);
+
+      // Save camera video track reference
+      cameraTrackRef.current = stream.getVideoTracks()[0];
 
       // update tracks if connected
       if (pcRef.current) {
@@ -164,9 +283,76 @@ export function useWebRTC() {
     return false;
   };
 
+  // ── Screen Sharing ──────────────────────────────────────────────
+  const shareScreen = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' },
+        audio: false,
+      });
+
+      screenStreamRef.current = screenStream;
+      const screenTrack = screenStream.getVideoTracks()[0];
+
+      // Replace video track in peer connection
+      if (pcRef.current) {
+        const videoSender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(screenTrack);
+        }
+      }
+
+      // Update local stream for display
+      if (localStreamRef.current) {
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        const newStream = new MediaStream([screenTrack, ...(audioTrack ? [audioTrack] : [])]);
+        setLocalStream(newStream);
+        localStreamRef.current = newStream;
+      }
+
+      setIsScreenSharing(true);
+
+      // Handle user stopping screen share via browser UI
+      screenTrack.onended = () => {
+        stopScreenShare();
+      };
+
+      return true;
+    } catch (err) {
+      console.error('Screen share error:', err);
+      return false;
+    }
+  };
+
+  const stopScreenShare = async () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(t => t.stop());
+      screenStreamRef.current = null;
+    }
+
+    // Restore camera track
+    if (cameraTrackRef.current && pcRef.current) {
+      const videoSender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
+      if (videoSender) {
+        await videoSender.replaceTrack(cameraTrackRef.current);
+      }
+
+      // Restore local stream
+      if (localStreamRef.current) {
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        const newStream = new MediaStream([cameraTrackRef.current, ...(audioTrack ? [audioTrack] : [])]);
+        setLocalStream(newStream);
+        localStreamRef.current = newStream;
+      }
+    }
+
+    setIsScreenSharing(false);
+  };
+
   const findPartner = (interests = []) => {
     cleanupWebRTC();
     setMessages([]);
+    resetGameState();
     socketRef.current?.emit('find-partner', { interests });
     setConnectionState('searching');
   };
@@ -175,6 +361,7 @@ export function useWebRTC() {
     cleanupWebRTC();
     socketRef.current?.emit('stop');
     setConnectionState('idle');
+    resetGameState();
   };
 
   const sendMessage = (text) => {
@@ -201,6 +388,74 @@ export function useWebRTC() {
     setMessages((prev) => [...prev, { id: Date.now() + Math.random(), ...msg }]);
   }, []);
 
+  // ── Reaction (send) ─────────────────────────────────────────────
+  const sendReaction = useCallback((emoji) => {
+    socketRef.current?.emit('reaction', emoji);
+  }, []);
+
+  // ── Icebreaker (send) ───────────────────────────────────────────
+  const sendIcebreaker = useCallback((question) => {
+    socketRef.current?.emit('icebreaker', question);
+    setIcebreakerQuestion(question);
+  }, []);
+
+  const dismissIcebreaker = useCallback(() => {
+    setIcebreakerQuestion(null);
+  }, []);
+
+  // ── Games ───────────────────────────────────────────────────────
+  const startGame = useCallback((gameType) => {
+    socketRef.current?.emit('game-start', gameType);
+    if (gameType === 'ttt') {
+      setTttBoard(Array(9).fill(null));
+      setTttMySymbol('X'); // Initiator is X
+      setTttIsMyTurn(true); // Initiator goes first
+      setTttWinner(null);
+    }
+  }, []);
+
+  const makeTTTMove = useCallback((index) => {
+    setTttBoard(prev => {
+      const newBoard = [...prev];
+      newBoard[index] = tttMySymbol;
+      socketRef.current?.emit('game-move', { game: 'ttt', index, symbol: tttMySymbol });
+      const winner = checkTTTWinner(newBoard);
+      if (winner) setTttWinner(winner);
+      setTttIsMyTurn(false);
+      return newBoard;
+    });
+  }, [tttMySymbol]);
+
+  const resetTTT = useCallback(() => {
+    setTttBoard(Array(9).fill(null));
+    setTttWinner(null);
+    setTttIsMyTurn(tttMySymbol === 'X'); // X always goes first
+    socketRef.current?.emit('game-reset');
+  }, [tttMySymbol]);
+
+  const sendWYRQuestion = useCallback((question) => {
+    setWyrQuestion(question);
+    setWyrMyPick(null);
+    setWyrPartnerPick(null);
+    socketRef.current?.emit('wyr-question', question);
+  }, []);
+
+  const pickWYR = useCallback((pick) => {
+    setWyrMyPick(pick);
+    socketRef.current?.emit('wyr-pick', pick);
+  }, []);
+
+  // ── Friend System ───────────────────────────────────────────────
+  const sendFriendRequest = useCallback(() => {
+    socketRef.current?.emit('friend-request');
+    setFriendRequested(true);
+  }, []);
+
+  // ── Skip Reason ─────────────────────────────────────────────────
+  const sendSkipReason = useCallback((reason) => {
+    if (reason) socketRef.current?.emit('skip-reason', reason);
+  }, []);
+
   return {
     connectionState,
     localStream,
@@ -216,5 +471,56 @@ export function useWebRTC() {
     sendMessage,
     sendTyping,
     switchCamera,
+    // Screen sharing
+    isScreenSharing,
+    shareScreen,
+    stopScreenShare,
+    // Reactions
+    sendReaction,
+    setOnRemoteReaction,
+    // Icebreaker
+    icebreakerQuestion,
+    sendIcebreaker,
+    dismissIcebreaker,
+    // Games
+    startGame,
+    setOnGameStart,
+    tttBoard,
+    tttIsMyTurn,
+    tttMySymbol,
+    tttWinner,
+    makeTTTMove,
+    resetTTT,
+    wyrQuestion,
+    wyrMyPick,
+    wyrPartnerPick,
+    sendWYRQuestion,
+    pickWYR,
+    // Friend
+    friendRequested,
+    friendAccepted,
+    friendRoomCode,
+    friendRequestReceived,
+    sendFriendRequest,
+    // Skip reason
+    sendSkipReason,
+    // Socket ref for reactions hook
+    socketRef,
   };
+}
+
+// ── TTT Winner Check ──────────────────────────────────────────────
+function checkTTTWinner(board) {
+  const lines = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
+    [0, 4, 8], [2, 4, 6],            // diagonals
+  ];
+  for (const [a, b, c] of lines) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return board[a]; // 'X' or 'O'
+    }
+  }
+  if (board.every(cell => cell !== null)) return 'draw';
+  return null;
 }
