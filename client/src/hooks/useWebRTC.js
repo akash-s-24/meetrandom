@@ -229,13 +229,54 @@ export function useWebRTC() {
         console.error('MediaDevices API not available. You must use HTTPS or localhost to access the camera.');
         return false;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: mode }, 
-        audio: true 
-      });
 
+      // IMPORTANT: On mobile, stop ALL existing tracks BEFORE requesting new
+      // ones. Mobile devices only allow one camera stream at a time — if the
+      // old stream is still active, getUserMedia for the other camera will fail.
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        setLocalStream(null);
+      }
+
+      let stream;
+      try {
+        // Use { exact: mode } so the browser is forced to pick the requested
+        // camera. A bare string like 'environment' is treated as "ideal" and
+        // many mobile browsers just silently return the same (front) camera.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: mode } },
+          audio: true,
+        });
+      } catch (exactErr) {
+        // Fallback 1: try without "exact" (works on desktop & some devices)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode },
+            audio: true,
+          });
+        } catch (fallbackErr) {
+          // Fallback 2: enumerate devices and pick a different deviceId
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+          if (videoDevices.length > 1) {
+            // Pick the device that is NOT the one we were using
+            const currentTrackLabel = cameraTrackRef.current?.label || '';
+            const otherDevice = videoDevices.find(
+              (d) => d.label !== currentTrackLabel
+            ) || videoDevices[1];
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: otherDevice.deviceId } },
+              audio: true,
+            });
+          } else {
+            // Only one camera — just re-open it
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: true,
+            });
+          }
+        }
       }
 
       setLocalStream(stream);
@@ -245,13 +286,15 @@ export function useWebRTC() {
       // Save camera video track reference
       cameraTrackRef.current = stream.getVideoTracks()[0];
 
-      // update tracks if connected
+      // Update tracks in the active peer connection
       if (pcRef.current) {
-         stream.getTracks().forEach(track => {
-             const sender = pcRef.current.getSenders().find(s => s.track?.kind === track.kind);
-             if (sender) sender.replaceTrack(track);
-             else pcRef.current.addTrack(track, stream);
-         });
+        stream.getTracks().forEach((track) => {
+          const sender = pcRef.current
+            .getSenders()
+            .find((s) => s.track?.kind === track.kind);
+          if (sender) sender.replaceTrack(track);
+          else pcRef.current.addTrack(track, stream);
+        });
       }
       return true;
     } catch (err) {
