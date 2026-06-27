@@ -308,12 +308,13 @@ function App() {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col lg:flex-row gap-6 pb-[100px] lg:pb-0 h-full relative">
+            <main className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 pb-[100px] lg:pb-0 h-full relative">
               
-              {/* Video Layout */}
-              <div className="flex-1 flex flex-col sm:flex-row gap-4 lg:gap-6 relative h-[60vh] lg:h-auto">
-                {/* Remote Video (Full Size) */}
-                <div className="w-full h-full relative lg:flex-[7] rounded-3xl overflow-hidden border-glow shadow-2xl">
+              {/* Video Layout (Grid for Omegle/Zoom style) */}
+              <div className="w-full lg:flex-[7] xl:flex-[8] grid grid-cols-1 grid-rows-2 md:grid-cols-2 md:grid-rows-1 gap-4 lg:gap-6 h-[60vh] md:h-[50vh] lg:h-auto">
+                
+                {/* Remote Video */}
+                <div className="w-full h-full relative rounded-3xl overflow-hidden border-glow shadow-2xl bg-black/40">
                   <VideoCard 
                     stream={remoteStream} 
                     isLocal={false} 
@@ -323,12 +324,8 @@ function App() {
                   />
                 </div>
                 
-                {/* Local Video (Floating or Side) */}
-                <motion.div 
-                  drag
-                  dragConstraints={{ left: -300, right: 0, top: 0, bottom: 300 }}
-                  className="absolute top-4 right-4 w-32 md:w-48 aspect-[3/4] z-30 cursor-grab active:cursor-grabbing rounded-2xl overflow-hidden shadow-2xl border border-white/20"
-                >
+                {/* Local Video */}
+                <div className="w-full h-full relative rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-black/40">
                   <VideoCard 
                     stream={localStream} 
                     isLocal={true} 
@@ -336,11 +333,12 @@ function App() {
                     muted={!micEnabled}
                     isScreenSharing={isScreenSharing}
                   />
-                </motion.div>
+                </div>
+
               </div>
 
               {/* Chat Panel */}
-              <div className="w-full h-[400px] lg:h-auto lg:flex-[3] flex-shrink-0 z-20">
+              <div className="w-full h-[350px] md:h-[400px] lg:h-auto lg:flex-[3] xl:flex-[4] flex-shrink-0 z-20">
                 <ChatPanel 
                   messages={messages}
                   onSend={sendMessage}
