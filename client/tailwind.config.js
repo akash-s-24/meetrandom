@@ -9,8 +9,9 @@ export default {
       colors: {
         background: '#0B0F19',
         surface: '#111827',
-        accent: '#8B5CF6',
-        cyan: '#22D3EE',
+        accent: '#8B5CF6', // Deep purple
+        cyan: '#22D3EE',   // Electric blue
+        pink: '#EC4899',   // Neon pink
         success: '#10B981',
         muted: '#94A3B8',
         text: '#F9FAFB'

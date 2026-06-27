@@ -78,8 +78,9 @@ export function useWebRTC() {
     s.on('stats', ({ online }) => setOnlineCount(online));
     s.on('waiting', () => setConnectionState('searching'));
     
-    s.on('matched', async ({ isInitiator }) => {
+    s.on('matched', async ({ isInitiator, partner }) => {
       setConnectionState('connected');
+      if (partner) setPartnerMeta(partner);
       await setupWebRTC(isInitiator, s);
     });
 
@@ -423,11 +424,14 @@ export function useWebRTC() {
     setIsScreenSharing(false);
   };
 
-  const findPartner = (interests = []) => {
+  const [partnerMeta, setPartnerMeta] = useState(null);
+
+  const findPartner = (meta = {}) => {
     cleanupWebRTC();
     setMessages([]);
     resetGameState();
-    socketRef.current?.emit('find-partner', { interests });
+    setPartnerMeta(null);
+    socketRef.current?.emit('find-partner', meta);
     setConnectionState('searching');
   };
 
@@ -617,6 +621,7 @@ export function useWebRTC() {
     sendSkipReason,
     // Socket ref for reactions hook
     socketRef,
+    partnerMeta,
   };
 }
 

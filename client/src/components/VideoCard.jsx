@@ -10,7 +10,7 @@ const SEARCH_MESSAGES = [
   "Connecting to someone interesting..."
 ];
 
-export function VideoCard({ stream, isLocal, state, muted, isScreenSharing, onPiPRef }) {
+export function VideoCard({ stream, isLocal, state, muted, isScreenSharing, onPiPRef, partnerMeta }) {
   const videoRef = useRef(null);
   const [msgIndex, setMsgIndex] = React.useState(0);
 
@@ -107,19 +107,49 @@ export function VideoCard({ stream, isLocal, state, muted, isScreenSharing, onPi
       </AnimatePresence>
 
       {/* Label Badge */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-        <div className="glass px-3 py-1.5 rounded-full text-xs font-semibold tracking-wider uppercase text-white/80">
-          {isLocal ? 'You' : 'Stranger'}
+      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <div className="glass px-3 py-1.5 rounded-full text-xs font-semibold tracking-wider uppercase text-white/80 border-glow-pink">
+            {isLocal ? 'You' : 'Stranger'}
+          </div>
+          {/* Screen sharing badge */}
+          {isScreenSharing && isLocal && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/20 border border-success/30 text-success text-xs font-semibold"
+            >
+              <ScreenShare className="w-3 h-3" />
+              Screen
+            </motion.div>
+          )}
         </div>
-        {/* Screen sharing badge */}
-        {isScreenSharing && isLocal && (
+        
+        {/* Profile Card Overlay */}
+        {!isLocal && state === 'connected' && partnerMeta && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/20 border border-success/30 text-success text-xs font-semibold"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="glass-panel p-4 rounded-2xl border-glow max-w-[250px] mt-2"
           >
-            <ScreenShare className="w-3 h-3" />
-            Screen
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent to-pink flex items-center justify-center font-bold text-white shadow-lg">
+                {partnerMeta.nickname ? partnerMeta.nickname[0].toUpperCase() : 'S'}
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-sm">{partnerMeta.nickname || 'Anonymous'}</h4>
+                <p className="text-xs text-muted capitalize">{partnerMeta.gender || 'Unknown'}, {partnerMeta.country?.toUpperCase() || 'Global'}</p>
+              </div>
+            </div>
+            {partnerMeta.interests && partnerMeta.interests.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {partnerMeta.interests.slice(0, 3).map(tag => (
+                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-md bg-cyan/20 text-cyan border border-cyan/30">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </div>

@@ -19,41 +19,68 @@ app.use(express.static(path.join(__dirname, 'client', 'dist')));
 const waitingQueue = [];           // { socketId, interests }
 const activeRooms  = new Map();    // roomId -> { users, createdAt, friendRequests }
 const socketToRoom = new Map();    // socketId -> roomId
-const socketMeta   = new Map();    // socketId -> { interests }
+const socketMeta   = new Map();    // socketId -> { userId, nickname, gender, country, interests, targetGender, targetCountry }
 let onlineCount    = 0;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function findPartner(socketId, interests) {
-  // Try interest-based match first
-  if (interests && interests.length > 0) {
-    for (let i = 0; i < waitingQueue.length; i++) {
-      const candidate = waitingQueue[i];
-      if (candidate.socketId === socketId) continue;
-      if (socketToRoom.has(candidate.socketId)) { waitingQueue.splice(i, 1); i--; continue; }
-      const sock = io.sockets.sockets.get(candidate.socketId);
-      if (!sock) { waitingQueue.splice(i, 1); i--; continue; }
+function findPartner(socketId, meta) {
+  const { interests, targetGender, targetCountry, reconnectUserId } = meta;
 
-      // Check interest overlap
-      if (candidate.interests && candidate.interests.length > 0) {
-        const shared = interests.filter(t => candidate.interests.includes(t));
-        if (shared.length > 0) {
-          waitingQueue.splice(i, 1);
-          return { partnerId: candidate.socketId, sharedInterests: shared };
-        }
+  // Try to reconnect if requested
+  if (reconnectUserId) {
+    for (let [sId, m] of socketMeta.entries()) {
+      if (m.userId === reconnectUserId && !socketToRoom.has(sId) && sId !== socketId) {
+        removeFromQueue(sId);
+        return { partnerId: sId, sharedInterests: [] };
       }
     }
   }
 
-  // Fallback: random match
-  while (waitingQueue.length > 0) {
-    const candidate = waitingQueue.shift();
+  // Iterate over waiting queue
+  for (let i = 0; i < waitingQueue.length; i++) {
+    const candidate = waitingQueue[i];
+    if (candidate.socketId === socketId) continue;
+    if (socketToRoom.has(candidate.socketId)) { waitingQueue.splice(i, 1); i--; continue; }
+    
+    const candidateMeta = socketMeta.get(candidate.socketId);
+    if (!candidateMeta) { waitingQueue.splice(i, 1); i--; continue; }
+    
+    // Check filters
+    if (targetGender && candidateMeta.gender !== targetGender) continue;
+    if (targetCountry && candidateMeta.country !== targetCountry) continue;
+    if (candidateMeta.targetGender && meta.gender !== candidateMeta.targetGender) continue;
+    if (candidateMeta.targetCountry && meta.country !== candidateMeta.targetCountry) continue;
+
+    // Check interest overlap
+    if (interests && interests.length > 0 && candidateMeta.interests && candidateMeta.interests.length > 0) {
+      const shared = interests.filter(t => candidateMeta.interests.includes(t));
+      if (shared.length > 0) {
+        waitingQueue.splice(i, 1);
+        return { partnerId: candidate.socketId, sharedInterests: shared };
+      }
+    }
+  }
+
+  // Fallback: random match that satisfies filters
+  for (let i = 0; i < waitingQueue.length; i++) {
+    const candidate = waitingQueue[i];
     if (candidate.socketId === socketId) continue;
     if (socketToRoom.has(candidate.socketId)) continue;
-    const sock = io.sockets.sockets.get(candidate.socketId);
-    if (!sock) continue;
+    
+    const candidateMeta = socketMeta.get(candidate.socketId);
+    if (!candidateMeta) continue;
+
+    // Check filters again
+    if (targetGender && candidateMeta.gender !== targetGender) continue;
+    if (targetCountry && candidateMeta.country !== targetCountry) continue;
+    if (candidateMeta.targetGender && meta.gender !== candidateMeta.targetGender) continue;
+    if (candidateMeta.targetCountry && meta.country !== candidateMeta.targetCountry) continue;
+
+    waitingQueue.splice(i, 1);
     return { partnerId: candidate.socketId, sharedInterests: [] };
   }
+  
   return null;
 }
 
@@ -110,20 +137,45 @@ io.on('connection', (socket) => {
 
   socket.on('find-partner', (data) => {
     const interests = (data && Array.isArray(data.interests)) ? data.interests.map(s => s.toLowerCase().trim()).filter(Boolean).slice(0, 5) : [];
-    socketMeta.set(socket.id, { interests });
+    const meta = {
+      userId: data?.userId || socket.id,
+      nickname: data?.nickname || 'Anonymous',
+      gender: data?.gender || null,
+      country: data?.country || null,
+      interests: interests,
+      targetGender: data?.targetGender || null,
+      targetCountry: data?.targetCountry || null,
+      reconnectUserId: data?.reconnectUserId || null
+    };
+    
+    socketMeta.set(socket.id, meta);
 
     // Clean up existing session
     disconnectPartner(socket.id);
     removeFromQueue(socket.id);
 
-    const match = findPartner(socket.id, interests);
+    const match = findPartner(socket.id, meta);
     if (match) {
       const roomId = createRoom(socket.id, match.partnerId);
+      const partnerMeta = socketMeta.get(match.partnerId) || {};
+      
       console.log(`⚡ ${socket.id} <-> ${match.partnerId} (shared: ${match.sharedInterests.join(', ') || 'none'})`);
-      socket.emit('matched', { roomId, isInitiator: true, sharedInterests: match.sharedInterests });
-      io.to(match.partnerId).emit('matched', { roomId, isInitiator: false, sharedInterests: match.sharedInterests });
+      
+      socket.emit('matched', { 
+        roomId, 
+        isInitiator: true, 
+        sharedInterests: match.sharedInterests,
+        partner: partnerMeta
+      });
+      
+      io.to(match.partnerId).emit('matched', { 
+        roomId, 
+        isInitiator: false, 
+        sharedInterests: match.sharedInterests,
+        partner: meta
+      });
     } else {
-      waitingQueue.push({ socketId: socket.id, interests });
+      waitingQueue.push({ socketId: socket.id, interests: meta.interests });
       socket.emit('waiting');
     }
   });
@@ -136,7 +188,13 @@ io.on('connection', (socket) => {
   // Chat
   socket.on('msg', (text) => {
     if (typeof text !== 'string' || !text.trim()) return;
-    const clean = text.trim().slice(0, 500);
+    let clean = text.trim().slice(0, 500);
+    
+    // Simple text moderation (profanity filter)
+    const badWords = ['fuck', 'shit', 'bitch', 'asshole', 'cunt', 'dick'];
+    const regex = new RegExp(badWords.join('|'), 'gi');
+    clean = clean.replace(regex, '***');
+
     const p = getPartner(socket.id);
     if (p) {
       io.to(p).emit('msg', { text: clean, from: 'stranger' });

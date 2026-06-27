@@ -9,9 +9,11 @@ import { IcebreakerOverlay, getRandomQuestion } from './components/IcebreakerOve
 import { MiniGame, WYR_QUESTIONS } from './components/MiniGame';
 import { AddFriendButton, FriendConnectedModal } from './components/AddFriendButton';
 import { SkipReasonModal } from './components/SkipReasonModal';
+import { MatchmakingScreen } from './components/MatchmakingScreen';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useVoiceChanger } from './hooks/useVoiceChanger';
 import { usePictureInPicture } from './hooks/usePictureInPicture';
+import { useUserStats } from './hooks/useUserStats';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function App() {
@@ -74,10 +76,12 @@ function App() {
     sendSkipReason,
     // Socket ref
     socketRef,
+    partnerMeta,
   } = useWebRTC();
 
   const { voicePreset, setVoicePreset, applyPreset } = useVoiceChanger();
   const { isPiP, togglePiP, setVideoElement } = usePictureInPicture();
+  const { profile, addHistory } = useUserStats();
 
   const [camEnabled, setCamEnabled] = useState(true);
   const [micEnabled, setMicEnabled] = useState(true);
@@ -136,10 +140,23 @@ function App() {
     }
   }, [voicePreset, localStream, applyPreset]);
 
-  const handleStart = async (interests) => {
+  // Track match history
+  useEffect(() => {
+    if (connectionState === 'connected' && partnerMeta) {
+      addHistory(partnerMeta);
+    }
+  }, [connectionState, partnerMeta]);
+
+  const handleStart = async (setupData) => {
     await startCamera(); // If it fails, that's okay, localStream will just be null
     setView('room');
-    findPartner(interests);
+    
+    // Combine profile data with setup data
+    const findMeta = {
+      ...profile,
+      ...setupData
+    };
+    findPartner(findMeta);
   };
 
   const handleNext = () => {
@@ -248,6 +265,13 @@ function App() {
             transition={{ duration: 0.5 }}
             className="flex-1 flex flex-col p-4 md:p-6 gap-6 z-10 w-full"
           >
+            {connectionState === 'searching' && (
+              <MatchmakingScreen 
+                onCancel={handleExit} 
+                onlineCount={onlineCount} 
+              />
+            )}
+
             {/* Top Bar */}
             <header className="flex items-center justify-between z-20 px-2">
               <div className="flex items-center gap-3">
@@ -282,19 +306,27 @@ function App() {
             </header>
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col lg:flex-row gap-6 pb-[100px] lg:pb-0">
+            <main className="flex-1 flex flex-col lg:flex-row gap-6 pb-[100px] lg:pb-0 h-full relative">
               
-              {/* Video Grid (takes up majority of screen) */}
-              <div className="flex-1 flex flex-col sm:flex-row gap-4 lg:gap-6">
-                <div className="w-full aspect-square sm:flex-1 sm:h-auto sm:aspect-auto relative">
+              {/* Video Layout */}
+              <div className="flex-1 flex flex-col sm:flex-row gap-4 lg:gap-6 relative h-[60vh] lg:h-auto">
+                {/* Remote Video (Full Size) */}
+                <div className="w-full h-full relative lg:flex-[7] rounded-3xl overflow-hidden border-glow shadow-2xl">
                   <VideoCard 
                     stream={remoteStream} 
                     isLocal={false} 
                     state={connectionState} 
                     onPiPRef={handlePiPRef}
+                    partnerMeta={partnerMeta}
                   />
                 </div>
-                <div className="w-full aspect-square sm:flex-1 sm:h-auto sm:aspect-auto relative">
+                
+                {/* Local Video (Floating or Side) */}
+                <motion.div 
+                  drag
+                  dragConstraints={{ left: -300, right: 0, top: 0, bottom: 300 }}
+                  className="absolute top-4 right-4 w-32 md:w-48 aspect-[3/4] z-30 cursor-grab active:cursor-grabbing rounded-2xl overflow-hidden shadow-2xl border border-white/20"
+                >
                   <VideoCard 
                     stream={localStream} 
                     isLocal={true} 
@@ -302,11 +334,11 @@ function App() {
                     muted={!micEnabled}
                     isScreenSharing={isScreenSharing}
                   />
-                </div>
+                </motion.div>
               </div>
 
               {/* Chat Panel */}
-              <div className="w-full h-[500px] lg:h-auto lg:flex-1 lg:max-w-[400px] flex-shrink-0 z-20">
+              <div className="w-full h-[400px] lg:h-auto lg:flex-[3] flex-shrink-0 z-20">
                 <ChatPanel 
                   messages={messages}
                   onSend={sendMessage}
