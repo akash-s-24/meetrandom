@@ -92,6 +92,7 @@ function App() {
   const [showMiniGame, setShowMiniGame] = useState(false);
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [showFriendModal, setShowFriendModal] = useState(false);
+  const [currentSearchMeta, setCurrentSearchMeta] = useState({});
 
   // Floating reactions
   const [reactions, setReactions] = useState([]);
@@ -156,6 +157,7 @@ function App() {
       ...profile,
       ...setupData
     };
+    setCurrentSearchMeta(findMeta);
     findPartner(findMeta);
   };
 
@@ -164,14 +166,14 @@ function App() {
     if (connectionState === 'connected') {
       setShowSkipModal(true);
     } else {
-      findPartner();
+      findPartner(currentSearchMeta);
     }
   };
 
   const handleSkipWithReason = (reason) => {
     sendSkipReason(reason);
     setShowSkipModal(false);
-    findPartner();
+    findPartner(currentSearchMeta);
   };
 
   const handleStop = () => {

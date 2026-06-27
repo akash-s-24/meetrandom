@@ -78,12 +78,6 @@ export function useWebRTC() {
     s.on('stats', ({ online }) => setOnlineCount(online));
     s.on('waiting', () => setConnectionState('searching'));
     
-    s.on('matched', async ({ isInitiator, partner }) => {
-      setConnectionState('connected');
-      if (partner) setPartnerMeta(partner);
-      await setupWebRTC(isInitiator, s);
-    });
-
     s.on('partner-left', () => {
       cleanupWebRTC();
       setConnectionState('disconnected');
@@ -102,11 +96,6 @@ export function useWebRTC() {
     s.on('reaction', (emoji) => {
       // This will be handled by the App component via onRemoteReaction callback
       if (reactionCallbackRef.current) reactionCallbackRef.current(emoji);
-    });
-
-    // ── Icebreaker ─────────────────────────────────────────────
-    s.on('icebreaker', (question) => {
-      setIcebreakerQuestion(question);
     });
 
     // ── Games: Tic-Tac-Toe ─────────────────────────────────────
@@ -181,12 +170,40 @@ export function useWebRTC() {
     });
 
     // WebRTC Signaling
-    s.on('signal-offer', async (offer) => {
+    let pendingOffer = null;
+    let pendingCandidates = [];
+
+    const handleOffer = async (offer) => {
       if (!pcRef.current) return;
       await pcRef.current.setRemoteDescription(offer);
       const answer = await pcRef.current.createAnswer();
       await pcRef.current.setLocalDescription(answer);
       s.emit('signal-answer', answer);
+      
+      // Process any candidates that arrived before the offer was processed
+      for (const c of pendingCandidates) {
+        await pcRef.current.addIceCandidate(c);
+      }
+      pendingCandidates = [];
+    };
+
+    s.on('matched', async ({ isInitiator, partner }) => {
+      await setupWebRTC(isInitiator, s);
+      setConnectionState('connected');
+      if (partner) setPartnerMeta(partner);
+      
+      if (!isInitiator && pendingOffer) {
+        await handleOffer(pendingOffer);
+        pendingOffer = null;
+      }
+    });
+
+    s.on('signal-offer', async (offer) => {
+      if (!pcRef.current) {
+        pendingOffer = offer;
+        return;
+      }
+      await handleOffer(offer);
     });
 
     s.on('signal-answer', async (answer) => {
@@ -194,7 +211,16 @@ export function useWebRTC() {
     });
 
     s.on('signal-candidate', async (candidate) => {
-      if (pcRef.current) await pcRef.current.addIceCandidate(candidate);
+      if (!pcRef.current || !pcRef.current.remoteDescription) {
+        pendingCandidates.push(candidate);
+        return;
+      }
+      await pcRef.current.addIceCandidate(candidate);
+    });
+
+    // ── Icebreaker ─────────────────────────────────────────────
+    s.on('icebreaker', (question) => {
+      setIcebreakerQuestion(question);
     });
 
     return () => {
